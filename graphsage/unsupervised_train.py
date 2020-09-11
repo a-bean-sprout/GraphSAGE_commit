@@ -1,3 +1,6 @@
+# -*- coding: UTF-8 -*-
+
+
 from __future__ import division
 from __future__ import print_function
 
@@ -28,7 +31,7 @@ tf.app.flags.DEFINE_boolean('log_device_placement', False,
 flags.DEFINE_string('model', 'graphsage', 'model names. See README for possible values.')  
 flags.DEFINE_float('learning_rate', 0.00001, 'initial learning rate.')
 flags.DEFINE_string("model_size", "small", "Can be big or small; model specific def'ns")
-flags.DEFINE_string('train_prefix', '', 'name of the object file that stores the training data. must be specified.')
+flags.DEFINE_string('train_prefix', '../example_data/toy-ppi', 'name of the object file that stores the training data. must be specified.')
 
 # left to default values in main experiments 
 flags.DEFINE_integer('epochs', 1, 'number of epochs to train.')
@@ -41,7 +44,7 @@ flags.DEFINE_integer('dim_1', 128, 'Size of output dim (final is 2x this, if usi
 flags.DEFINE_integer('dim_2', 128, 'Size of output dim (final is 2x this, if using concat)')
 flags.DEFINE_boolean('random_context', True, 'Whether to use random context or direct edges')
 flags.DEFINE_integer('neg_sample_size', 20, 'number of negative samples')
-flags.DEFINE_integer('batch_size', 512, 'minibatch size.')
+flags.DEFINE_integer('batch_size', 5, 'minibatch size.')
 flags.DEFINE_integer('n2v_test_epochs', 1, 'Number of new SGD epochs for n2v.')
 flags.DEFINE_integer('identity_dim', 0, 'Set to positive value to use identity embedding features of that dimension. Default 0.')
 
@@ -134,11 +137,19 @@ def train(train_data, test_data=None):
     features = train_data[1]
     id_map = train_data[2]
 
+    # why?
+    print('===')
+    print (np.size(features,0))
+    print(np.size(features, 1))
     if not features is None:
         # pad with dummy zero vector
-        features = np.vstack([features, np.zeros((features.shape[1],))])
+        features = np.vstack([features, np.zeros((features.shape[1],))])  # features为N*D
 
-    context_pairs = train_data[3] if FLAGS.random_context else None
+    print(np.size(features, 0))
+    print(np.size(features, 1))
+    print('===')
+
+    context_pairs = train_data[3] if FLAGS.random_context else None  # 文件中出的随机对
     placeholders = construct_placeholders()
     minibatch = EdgeMinibatchIterator(G, 
             id_map,
@@ -149,13 +160,20 @@ def train(train_data, test_data=None):
     adj_info_ph = tf.placeholder(tf.int32, shape=minibatch.adj.shape)
     adj_info = tf.Variable(adj_info_ph, trainable=False, name="adj_info")
 
+    '''
+    'layer_name', # name of the layer (to get feature embedding etc.)
+    'neigh_sampler', # callable neigh_sampler constructor
+    'num_samples',
+    'output_dim' # the output (i.e., hidden) dimension
+    '''
+
     if FLAGS.model == 'graphsage_mean':
         # Create model
         sampler = UniformNeighborSampler(adj_info)
         layer_infos = [SAGEInfo("node", sampler, FLAGS.samples_1, FLAGS.dim_1),
                             SAGEInfo("node", sampler, FLAGS.samples_2, FLAGS.dim_2)]
 
-        model = SampleAndAggregate(placeholders, 
+        model = SampleAndAggregate(placeholders,
                                      features,
                                      adj_info,
                                      minibatch.deg,
@@ -265,7 +283,7 @@ def train(train_data, test_data=None):
         epoch_val_costs.append(0)
         while not minibatch.end():
             # Construct feed dictionary
-            feed_dict = minibatch.next_minibatch_feed_dict()
+            feed_dict = minibatch.next_minibatch_feed_dict()  # batch1:起始点的集合 # batch2：终止点的集合
             feed_dict.update({placeholders['dropout']: FLAGS.dropout})
 
             t = time.time()

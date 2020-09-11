@@ -1,3 +1,5 @@
+# -*- coding: UTF-8 -*-
+
 from __future__ import division
 from __future__ import print_function
 
@@ -32,14 +34,14 @@ class EdgeMinibatchIterator(object):
         self.max_degree = max_degree
         self.batch_num = 0
 
-        self.nodes = np.random.permutation(G.nodes())
-        self.adj, self.deg = self.construct_adj()
-        self.test_adj = self.construct_test_adj()
+        self.nodes = np.random.permutation(G.nodes())  # 随机打乱节点的顺序，permutation不改变原数组，返回一个新的打乱数组
+        self.adj, self.deg = self.construct_adj()  # 训练集点点临界点矩阵
+        self.test_adj = self.construct_test_adj()  # 所有点的邻接点矩阵
         if context_pairs is None:
             edges = G.edges()
         else:
             edges = context_pairs
-        self.train_edges = self.edges = np.random.permutation(edges)
+        self.train_edges = self.edges = np.random.permutation(edges)  # 是文件中取的邻接点集合
         if not n2v_retrain:
             self.train_edges = self._remove_isolated(self.train_edges)
             self.val_edges = [e for e in G.edges() if G[e[0]][e[1]]['train_removed']]
@@ -64,6 +66,7 @@ class EdgeMinibatchIterator(object):
             if not n1 in self.G.node or not n2 in self.G.node:
                 missing += 1
                 continue
+            #  若训练集点的度数为0 ，那么肯定他的连接边在验证集
             if (self.deg[self.id2idx[n1]] == 0 or self.deg[self.id2idx[n2]] == 0) \
                     and (not self.G.node[n1]['test'] or self.G.node[n1]['val']) \
                     and (not self.G.node[n2]['test'] or self.G.node[n2]['val']):
@@ -193,6 +196,15 @@ class NodeMinibatchIterator(object):
             batch_size=100, max_degree=25,
             **kwargs):
 
+        '''NodeMinibatchIterator(G,
+            id_map,
+            placeholders,
+            class_map,
+            num_classes,
+            batch_size=FLAGS.batch_size,
+            max_degree=FLAGS.max_degree,
+            context_pairs = context_pairs)'''
+
         self.G = G
         self.nodes = G.nodes()
         self.id2idx = id2idx
@@ -203,16 +215,17 @@ class NodeMinibatchIterator(object):
         self.label_map = label_map
         self.num_classes = num_classes
 
-        self.adj, self.deg = self.construct_adj()
+        self.adj, self.deg = self.construct_adj()  # 获取训练集的临界点矩阵和度数矩阵
         self.test_adj = self.construct_test_adj()
 
-        self.val_nodes = [n for n in self.G.nodes() if self.G.node[n]['val']]
+        self.val_nodes = [n for n in self.G.nodes() if self.G.node[n]['val']]  # 应该是验证集的意思
         self.test_nodes = [n for n in self.G.nodes() if self.G.node[n]['test']]
 
         self.no_train_nodes_set = set(self.val_nodes + self.test_nodes)
         self.train_nodes = set(G.nodes()).difference(self.no_train_nodes_set)
         # don't train on nodes that only have edges to test set
         self.train_nodes = [n for n in self.train_nodes if self.deg[id2idx[n]] > 0]
+        print ("train_nodes log:", self.train_nodes)
 
     def _make_label_vec(self, node):
         label = self.label_map[node]
@@ -225,12 +238,15 @@ class NodeMinibatchIterator(object):
         return label_vec
 
     def construct_adj(self):
+        #  计算邻接点的矩阵 1点和 234点相联，那就第一列对应 234
+        #  计算度数矩阵
         adj = len(self.id2idx)*np.ones((len(self.id2idx)+1, self.max_degree))
         deg = np.zeros((len(self.id2idx),))
 
         for nodeid in self.G.nodes():
             if self.G.node[nodeid]['test'] or self.G.node[nodeid]['val']:
                 continue
+            # 获取邻接节点
             neighbors = np.array([self.id2idx[neighbor] 
                 for neighbor in self.G.neighbors(nodeid)
                 if (not self.G[nodeid][neighbor]['train_removed'])])
@@ -240,7 +256,7 @@ class NodeMinibatchIterator(object):
             if len(neighbors) > self.max_degree:
                 neighbors = np.random.choice(neighbors, self.max_degree, replace=False)
             elif len(neighbors) < self.max_degree:
-                neighbors = np.random.choice(neighbors, self.max_degree, replace=True)
+                neighbors = np.random.choice(neighbors, self.max_degree, replace=True)  # True 表示是否出现重复
             adj[self.id2idx[nodeid], :] = neighbors
         return adj, deg
 
@@ -299,7 +315,7 @@ class NodeMinibatchIterator(object):
     def num_training_batches(self):
         return len(self.train_nodes) // self.batch_size + 1
 
-    def next_minibatch_feed_dict(self):
+    def next_minibatch_feed_dict(self):   # 他这里batch是通过点来batch的，也就是只考虑一部分图结构
         start_idx = self.batch_num * self.batch_size
         self.batch_num += 1
         end_idx = min(start_idx + self.batch_size, len(self.train_nodes))

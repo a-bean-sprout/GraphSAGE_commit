@@ -1,3 +1,5 @@
+# -*- coding: UTF-8 -*-
+
 import tensorflow as tf
 
 from .layers import Layer, Dense
@@ -14,8 +16,8 @@ class MeanAggregator(Layer):
         super(MeanAggregator, self).__init__(**kwargs)
 
         self.dropout = dropout
-        self.bias = bias
-        self.act = act
+        self.bias = bias  # true or false
+        self.act = act  # 激活函数
         self.concat = concat
 
         if neigh_input_dim is None:
@@ -52,7 +54,7 @@ class MeanAggregator(Layer):
 
         from_self = tf.matmul(self_vecs, self.vars["self_weights"])
          
-        if not self.concat:
+        if not self.concat:  # concat对应一种聚合方式：是要直接权重相加，还是concat
             output = tf.add_n([from_self, from_neighs])
         else:
             output = tf.concat([from_self, from_neighs], axis=1)
@@ -104,7 +106,7 @@ class GCNAggregator(Layer):
         neigh_vecs = tf.nn.dropout(neigh_vecs, 1-self.dropout)
         self_vecs = tf.nn.dropout(self_vecs, 1-self.dropout)
         means = tf.reduce_mean(tf.concat([neigh_vecs, 
-            tf.expand_dims(self_vecs, axis=1)], axis=1), axis=1)
+            tf.expand_dims(self_vecs, axis=1)], axis=1), axis=1)  # 增加一维，拼接接起来求和
        
         # [nodes] x [out_dim]
         output = tf.matmul(means, self.vars['weights'])

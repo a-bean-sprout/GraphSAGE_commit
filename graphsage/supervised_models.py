@@ -1,3 +1,5 @@
+# -*- coding: UTF-8 -*-
+
 import tensorflow as tf
 
 import graphsage.models as models
@@ -28,7 +30,7 @@ class SupervisedGraphsage(models.SampleAndAggregate):
             - model_size: one of "small" and "big"
             - sigmoid_loss: Set to true if nodes can belong to multiple classes
         '''
-
+        print ( "kwargs ", kwargs)  # 输出为{'logging': True}，匹配不上的会放这里吧
         models.GeneralizedModel.__init__(self, **kwargs)
 
         if aggregator_type == "mean":
@@ -45,10 +47,16 @@ class SupervisedGraphsage(models.SampleAndAggregate):
             raise Exception("Unknown aggregator: ", self.aggregator_cls)
 
         # get info from placeholders...
-        self.inputs1 = placeholders["batch"]
-        self.model_size = model_size
+        self.inputs1 = placeholders["batch"]  # 图的节点集合
+
+        # 此为LOG节点
+        self.shapelog = tf.shape(placeholders["batch"])
+
+        self.model_size = model_size  # small or big
         self.adj_info = adj
-        if identity_dim > 0:
+
+        # 定义features层
+        if identity_dim > 0:  # id_embeding维度
            self.embeds = tf.get_variable("node_embeddings", [adj.get_shape().as_list()[0], identity_dim])
         else:
            self.embeds = None
@@ -59,16 +67,16 @@ class SupervisedGraphsage(models.SampleAndAggregate):
         else:
             self.features = tf.Variable(tf.constant(features, dtype=tf.float32), trainable=False)
             if not self.embeds is None:
-                self.features = tf.concat([self.embeds, self.features], axis=1)
-        self.degrees = degrees
-        self.concat = concat
+                self.features = tf.concat([self.embeds, self.features], axis=1)   # 和你理解的预训练不一样：我认为features直接初始化embeds 但实际上是concat了
+        self.degrees = degrees  # 节点的度数列表
+        self.concat = concat # true or false
         self.num_classes = num_classes
         self.sigmoid_loss = sigmoid_loss
-        self.dims = [(0 if features is None else features.shape[1]) + identity_dim]
-        self.dims.extend([layer_infos[i].output_dim for i in range(len(layer_infos))])
+        self.dims = [(0 if features is None else features.shape[1]) + identity_dim]  # features层的长度
+        self.dims.extend([layer_infos[i].output_dim for i in range(len(layer_infos))])  # 中间层的输出维度 后面用户构造模型结构
         self.batch_size = placeholders["batch_size"]
         self.placeholders = placeholders
-        self.layer_infos = layer_infos
+        self.layer_infos = layer_infos # 中间层信息
 
         self.optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate)
 
@@ -100,7 +108,7 @@ class SupervisedGraphsage(models.SampleAndAggregate):
         self.preds = self.predict()
 
     def _loss(self):
-        # Weight decay loss
+        # Weight decay loss 正则化
         for aggregator in self.aggregators:
             for var in aggregator.vars.values():
                 self.loss += FLAGS.weight_decay * tf.nn.l2_loss(var)

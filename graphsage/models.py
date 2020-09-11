@@ -1,3 +1,5 @@
+# -*- coding: UTF-8 -*-
+
 from collections import namedtuple
 
 import tensorflow as tf
@@ -20,11 +22,13 @@ FLAGS = flags.FLAGS
 class Model(object):
     def __init__(self, **kwargs):
         allowed_kwargs = {'name', 'logging', 'model_size'}
+
         for kwarg in kwargs.keys():
             assert kwarg in allowed_kwargs, 'Invalid keyword argument: ' + kwarg
+
         name = kwargs.get('name')
         if not name:
-            name = self.__class__.__name__.lower()
+            name = self.__class__.__name__.lower() # 获得类名
         self.name = name
 
         logging = kwargs.get('logging', False)
@@ -227,7 +231,7 @@ class SampleAndAggregate(GeneralizedModel):
         self.model_size = model_size
         self.adj_info = adj
         if identity_dim > 0:
-           self.embeds = tf.get_variable("node_embeddings", [adj.get_shape().as_list()[0], identity_dim])
+           self.embeds = tf.get_variable("node_embeddings", [adj.get_shape().as_list()[0], identity_dim])  # 如果已经存在参数定义相同的变量，返回已存在。否则定义新的变量
         else:
            self.embeds = None
         if features is None: 
@@ -237,7 +241,7 @@ class SampleAndAggregate(GeneralizedModel):
         else:
             self.features = tf.Variable(tf.constant(features, dtype=tf.float32), trainable=False)
             if not self.embeds is None:
-                self.features = tf.concat([self.embeds, self.features], axis=1)
+                self.features = tf.concat([self.embeds, self.features], axis=1)   # embeds是如何初始化呢？
         self.degrees = degrees
         self.concat = concat
 
@@ -261,7 +265,7 @@ class SampleAndAggregate(GeneralizedModel):
         
         if batch_size is None:
             batch_size = self.batch_size
-        samples = [inputs]
+        samples = [inputs]  # 1 * batch_size
         # size of convolution support at each layer per node
         support_size = 1
         support_sizes = [support_size]
@@ -269,16 +273,16 @@ class SampleAndAggregate(GeneralizedModel):
             t = len(layer_infos) - k - 1
             support_size *= layer_infos[t].num_samples
             sampler = layer_infos[t].neigh_sampler
-            node = sampler((samples[k], layer_infos[t].num_samples))
+            node = sampler((samples[k], layer_infos[t].num_samples))  # 随机获取第k层邻居节点
             samples.append(tf.reshape(node, [support_size * batch_size,]))
             support_sizes.append(support_size)
-        return samples, support_sizes
+        return samples, support_sizes   # 各层所需节点、视野域
 
 
     def aggregate(self, samples, input_features, dims, num_samples, support_sizes, batch_size=None,
             aggregators=None, name=None, concat=False, model_size="small"):
         """ At each layer, aggregate hidden representations of neighbors to compute the hidden representations 
-            at next layer.
+            at next layer.  // 计算下一层的隐式表示
         Args:
             samples: a list of samples of variable hops away for convolving at each layer of the
                 network. Length is the number of layers + 1. Each is a vector of node indices.
@@ -296,7 +300,7 @@ class SampleAndAggregate(GeneralizedModel):
             batch_size = self.batch_size
 
         # length: number of layers + 1
-        hidden = [tf.nn.embedding_lookup(input_features, node_samples) for node_samples in samples]
+        hidden = [tf.nn.embedding_lookup(input_features, node_samples) for node_samples in samples]  # 获取各层节点的embedding矩阵
         new_agg = aggregators is None
         if new_agg:
             aggregators = []
@@ -307,7 +311,7 @@ class SampleAndAggregate(GeneralizedModel):
                 if layer == len(num_samples) - 1:
                     aggregator = self.aggregator_cls(dim_mult*dims[layer], dims[layer+1], act=lambda x : x,
                             dropout=self.placeholders['dropout'], 
-                            name=name, concat=concat, model_size=model_size)
+                            name=name, concat=concat, model_size=model_size)  # 输入参数：层的输入维度、输出维度，激活函数
                 else:
                     aggregator = self.aggregator_cls(dim_mult*dims[layer], dims[layer+1],
                             dropout=self.placeholders['dropout'], 
@@ -324,7 +328,7 @@ class SampleAndAggregate(GeneralizedModel):
                               num_samples[len(num_samples) - hop - 1], 
                               dim_mult*dims[layer]]
                 h = aggregator((hidden[hop],
-                                tf.reshape(hidden[hop + 1], neigh_dims)))
+                                tf.reshape(hidden[hop + 1], neigh_dims)))  # h为下一层的输入
                 next_hidden.append(h)
             hidden = next_hidden
         return hidden[0], aggregators
@@ -332,21 +336,22 @@ class SampleAndAggregate(GeneralizedModel):
     def _build(self):
         labels = tf.reshape(
                 tf.cast(self.placeholders['batch2'], dtype=tf.int64),
-                [self.batch_size, 1])
-        self.neg_samples, _, _ = (tf.nn.fixed_unigram_candidate_sampler(
+                [self.batch_size, 1])  # 类型需转化为相应格式，才能放到下面函数中
+        self.neg_samples, _, _ = (tf.nn.fixed_unigram_candidate_sampler(  # 随机采样出类别子集
             true_classes=labels,
             num_true=1,
-            num_sampled=FLAGS.neg_sample_size,
-            unique=False,
+            num_sampled=FLAGS.neg_sample_size,  # 随机抽象的类数 = 负样本的batch size
+            unique=False,  # 所有采样类是否都唯一
             range_max=len(self.degrees),
-            distortion=0.75,
-            unigrams=self.degrees.tolist()))
+            distortion=0.75,  # 扭曲unigram分布
+            unigrams=self.degrees.tolist()))  # 指定每个类被采用的概率
 
            
         # perform "convolution"
         samples1, support_sizes1 = self.sample(self.inputs1, self.layer_infos)
         samples2, support_sizes2 = self.sample(self.inputs2, self.layer_infos)
         num_samples = [layer_info.num_samples for layer_info in self.layer_infos]
+        # 注意：这里没传aggregators参数
         self.outputs1, self.aggregators = self.aggregate(samples1, [self.features], self.dims, num_samples,
                 support_sizes1, concat=self.concat, model_size=self.model_size)
         self.outputs2, _ = self.aggregate(samples2, [self.features], self.dims, num_samples,

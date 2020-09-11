@@ -1,3 +1,5 @@
+# -*- coding: UTF-8 -*-
+
 from __future__ import division
 from __future__ import print_function
 
@@ -14,7 +16,7 @@ from graphsage.minibatch import NodeMinibatchIterator
 from graphsage.neigh_samplers import UniformNeighborSampler
 from graphsage.utils import load_data
 
-os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"   # 系统环境的设置
 
 # Set random seed
 seed = 123
@@ -22,7 +24,7 @@ np.random.seed(seed)
 tf.set_random_seed(seed)
 
 # Settings
-flags = tf.app.flags
+flags = tf.app.flags   # 用于支持接受命令行传递参数，相当于接受argv
 FLAGS = flags.FLAGS
 
 tf.app.flags.DEFINE_boolean('log_device_placement', False,
@@ -31,7 +33,7 @@ tf.app.flags.DEFINE_boolean('log_device_placement', False,
 flags.DEFINE_string('model', 'graphsage_mean', 'model names. See README for possible values.')  
 flags.DEFINE_float('learning_rate', 0.01, 'initial learning rate.')
 flags.DEFINE_string("model_size", "small", "Can be big or small; model specific def'ns")
-flags.DEFINE_string('train_prefix', '', 'prefix identifying training data. must be specified.')
+flags.DEFINE_string('train_prefix', '../example_data/toy-ppi', 'prefix identifying training data. must be specified.')
 
 # left to default values in main experiments 
 flags.DEFINE_integer('epochs', 10, 'number of epochs to train.')
@@ -44,7 +46,7 @@ flags.DEFINE_integer('samples_3', 0, 'number of users samples in layer 3. (Only 
 flags.DEFINE_integer('dim_1', 128, 'Size of output dim (final is 2x this, if using concat)')
 flags.DEFINE_integer('dim_2', 128, 'Size of output dim (final is 2x this, if using concat)')
 flags.DEFINE_boolean('random_context', True, 'Whether to use random context or direct edges')
-flags.DEFINE_integer('batch_size', 512, 'minibatch size.')
+flags.DEFINE_integer('batch_size', 5, 'minibatch size.')
 flags.DEFINE_boolean('sigmoid', False, 'whether to use sigmoid loss')
 flags.DEFINE_integer('identity_dim', 0, 'Set to positive value to use identity embedding features of that dimension. Default 0.')
 
@@ -120,22 +122,30 @@ def construct_placeholders(num_classes):
     return placeholders
 
 def train(train_data, test_data=None):
-
+    # return G, feats, id_map, walks, class_map
     G = train_data[0]
     features = train_data[1]
     id_map = train_data[2]
     class_map  = train_data[4]
+
+    #  获取类别个数
     if isinstance(list(class_map.values())[0], list):
         num_classes = len(list(class_map.values())[0])
     else:
         num_classes = len(set(class_map.values()))
 
+    #  在预训练特征 后 加入一行0矩阵 , 用于 wx+b 中 与b相加
     if not features is None:
         # pad with dummy zero vector
-        features = np.vstack([features, np.zeros((features.shape[1],))])
+        features = np.vstack([features, np.zeros((features.shape[1],))])  # 垂直堆叠
 
-    context_pairs = train_data[3] if FLAGS.random_context else None
+    # 初始化随机游走序列
+    context_pairs = train_data[3] if FLAGS.random_context else None # 先执行中间的If 如果返回True执行左边 否右边
+
+    # 初始化placeholder ，包括label、batch：就是构造那些不需要训练的输入输出节点
     placeholders = construct_placeholders(num_classes)
+
+    # 初始化NodeMinibatchIterator: 初始化训练集等
     minibatch = NodeMinibatchIterator(G, 
             id_map,
             placeholders, 
@@ -144,14 +154,15 @@ def train(train_data, test_data=None):
             batch_size=FLAGS.batch_size,
             max_degree=FLAGS.max_degree, 
             context_pairs = context_pairs)
+    
     adj_info_ph = tf.placeholder(tf.int32, shape=minibatch.adj.shape)
-    adj_info = tf.Variable(adj_info_ph, trainable=False, name="adj_info")
+    adj_info = tf.Variable(adj_info_ph, trainable=False, name="adj_info")  # 转化为无需训练的张量，这一步的目的比较迷惑
 
     if FLAGS.model == 'graphsage_mean':
         # Create model
-        sampler = UniformNeighborSampler(adj_info)
+        sampler = UniformNeighborSampler(adj_info)  # 初始化随机获取邻居节点的采样器
         if FLAGS.samples_3 != 0:
-            layer_infos = [SAGEInfo("node", sampler, FLAGS.samples_1, FLAGS.dim_1),
+            layer_infos = [SAGEInfo("node", sampler, FLAGS.samples_1, FLAGS.dim_1),  # FLAGS.samples_1 样本数量  FLAGS.dim_1 隐藏层的输出维度
                                 SAGEInfo("node", sampler, FLAGS.samples_2, FLAGS.dim_2),
                                 SAGEInfo("node", sampler, FLAGS.samples_3, FLAGS.dim_2)]
         elif FLAGS.samples_2 != 0:
@@ -160,7 +171,7 @@ def train(train_data, test_data=None):
         else:
             layer_infos = [SAGEInfo("node", sampler, FLAGS.samples_1, FLAGS.dim_1)]
 
-        model = SupervisedGraphsage(num_classes, placeholders, 
+        model = SupervisedGraphsage(num_classes, placeholders,
                                      features,
                                      adj_info,
                                      minibatch.deg,
@@ -246,10 +257,10 @@ def train(train_data, test_data=None):
     # Initialize session
     sess = tf.Session(config=config)
     merged = tf.summary.merge_all()
-    summary_writer = tf.summary.FileWriter(log_dir(), sess.graph)
+    summary_writer = tf.summary.FileWriter(log_dir(), sess.graph)   # 指定文件来保存图
      
     # Init variables
-    sess.run(tf.global_variables_initializer(), feed_dict={adj_info_ph: minibatch.adj})
+    sess.run(tf.global_variables_initializer(), feed_dict={adj_info_ph: minibatch.adj})  # ph的意思是？之前说过是相位  含义：训练集的邻接节点
     
     # Train model
     
@@ -257,6 +268,7 @@ def train(train_data, test_data=None):
     avg_time = 0.0
     epoch_val_costs = []
 
+    # 训练集和测试集的train_adj_info赋值，存储邻接节点的信息。只有run了节点，赋值才会生效。
     train_adj_info = tf.assign(adj_info, minibatch.adj)
     val_adj_info = tf.assign(adj_info, minibatch.test_adj)
     for epoch in range(FLAGS.epochs): 
@@ -268,12 +280,22 @@ def train(train_data, test_data=None):
         while not minibatch.end():
             # Construct feed dictionary
             feed_dict, labels = minibatch.next_minibatch_feed_dict()
-            feed_dict.update({placeholders['dropout']: FLAGS.dropout})
+            feed_dict.update({placeholders['dropout']: FLAGS.dropout})  # 现在feed_dict里输出的节点有：dropout、batch_size、batch（样本点的集合）、labels
+
+            # LOG
+            # print("inputs1 shape", sess.run([model.shapelog],feed_dict=feed_dict))
+            print("inputs:", sess.run([model.inputs1], feed_dict=feed_dict))
+            print("samples0", sess.run([model.log0], feed_dict=feed_dict))
+            print("samples1", sess.run([model.log1], feed_dict=feed_dict))
+            print("samples2", sess.run([model.log2], feed_dict=feed_dict))
 
             t = time.time()
             # Training step
             outs = sess.run([merged, model.opt_op, model.loss, model.preds], feed_dict=feed_dict)
             train_cost = outs[2]
+
+            # log
+            break
 
             if iter % FLAGS.validate_iter == 0:
                 # Validation
@@ -336,4 +358,7 @@ def main(argv=None):
     train(train_data)
 
 if __name__ == '__main__':
-    tf.app.run()
+    tf.app.run()  # 解析FLAG , 然后执行main函数
+
+
+

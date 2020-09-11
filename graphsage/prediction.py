@@ -1,3 +1,5 @@
+# -*- coding: UTF-8 -*-
+
 from __future__ import division
 from __future__ import print_function
 
@@ -74,7 +76,7 @@ class BipartiteEdgePredLayer(Layer):
         if self.bilinear_weights:
             prod = tf.matmul(inputs2, tf.transpose(self.vars['weights']))
             self.prod = prod
-            result = tf.reduce_sum(inputs1 * prod, axis=1)
+            result = tf.reduce_sum(inputs1 * prod, axis=1)  # 注意这里是*乘，即对应位置相乘
         else:
             result = tf.reduce_sum(inputs1 * inputs2, axis=1)
         return result
@@ -88,7 +90,7 @@ class BipartiteEdgePredLayer(Layer):
         """
         if self.bilinear_weights:
             inputs1 = tf.matmul(inputs1, self.vars['weights'])
-        neg_aff = tf.matmul(inputs1, tf.transpose(neg_samples))
+        neg_aff = tf.matmul(inputs1, tf.transpose(neg_samples))  # tf.transpose用于转置
         return neg_aff
 
     def loss(self, inputs1, inputs2, neg_samples):
@@ -110,8 +112,9 @@ class BipartiteEdgePredLayer(Layer):
         return loss
 
     def _skipgram_loss(self, inputs1, inputs2, neg_samples, hard_neg_samples=None):
-        aff = self.affinity(inputs1, inputs2)
-        neg_aff = self.neg_cost(inputs1, neg_samples, hard_neg_samples)
+        # 用点积来衡量亲密程度，也就是余弦距离
+        aff = self.affinity(inputs1, inputs2)  # 计算两连通节点的亲密程度
+        neg_aff = self.neg_cost(inputs1, neg_samples, hard_neg_samples)  # 负样本和一节点的亲密程度
         neg_cost = tf.log(tf.reduce_sum(tf.exp(neg_aff), axis=1))
         loss = tf.reduce_sum(aff - neg_cost)
         return loss
@@ -119,7 +122,7 @@ class BipartiteEdgePredLayer(Layer):
     def _hinge_loss(self, inputs1, inputs2, neg_samples, hard_neg_samples=None):
         aff = self.affinity(inputs1, inputs2)
         neg_aff = self.neg_cost(inputs1, neg_samples, hard_neg_samples)
-        diff = tf.nn.relu(tf.subtract(neg_aff, tf.expand_dims(aff, 1) - self.margin), name='diff')
+        diff = tf.nn.relu(tf.subtract(neg_aff, tf.expand_dims(aff, 1) - self.margin), name='diff')  # tf.subtract矩阵减法
         loss = tf.reduce_sum(diff)
         self.neg_shape = tf.shape(neg_aff)
         return loss
